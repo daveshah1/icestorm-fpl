@@ -20,6 +20,11 @@ set_io led3       21
 set_io led4       23
 set_io led5       26
 
+# Buttons (PMOD 2)
+set_io btn1       20
+set_io btn2       19
+set_io btn3       18
+
 # Onboard LEDs
 set_io ledr_n     11
 set_io ledg_n     37

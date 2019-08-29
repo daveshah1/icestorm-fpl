@@ -55,61 +55,6 @@ void flashio(uint8_t *data, int len, uint8_t wrencmd)
 	((void(*)(uint8_t*, uint32_t, uint32_t))func)(data, len, wrencmd);
 }
 
-#ifdef HX8KDEMO
-void set_flash_qspi_flag()
-{
-	uint8_t buffer[8];
-	uint32_t addr_cr1v = 0x800002;
-
-	// Read Any Register (RDAR 65h)
-	buffer[0] = 0x65;
-	buffer[1] = addr_cr1v >> 16;
-	buffer[2] = addr_cr1v >> 8;
-	buffer[3] = addr_cr1v;
-	buffer[4] = 0; // dummy
-	buffer[5] = 0; // rdata
-	flashio(buffer, 6, 0);
-	uint8_t cr1v = buffer[5];
-
-	// Write Enable (WREN 06h) + Write Any Register (WRAR 71h)
-	buffer[0] = 0x71;
-	buffer[1] = addr_cr1v >> 16;
-	buffer[2] = addr_cr1v >> 8;
-	buffer[3] = addr_cr1v;
-	buffer[4] = cr1v | 2; // Enable QSPI
-	flashio(buffer, 5, 0x06);
-}
-
-void set_flash_latency(uint8_t value)
-{
-	reg_spictrl = (reg_spictrl & ~0x007f0000) | ((value & 15) << 16);
-
-	uint32_t addr = 0x800004;
-	uint8_t buffer_wr[5] = {0x71, addr >> 16, addr >> 8, addr, 0x70 | value};
-	flashio(buffer_wr, 5, 0x06);
-}
-
-void set_flash_mode_spi()
-{
-	reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00000000;
-}
-
-void set_flash_mode_dual()
-{
-	reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00400000;
-}
-
-void set_flash_mode_quad()
-{
-	reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00200000;
-}
-
-void set_flash_mode_qddr()
-{
-	reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00600000;
-}
-#endif
-
 #ifdef ICEBREAKER
 void set_flash_qspi_flag()
 {
@@ -277,68 +222,6 @@ void cmd_print_spi_state()
 		print("OFF\n");
 }
 
-uint32_t xorshift32(uint32_t *state)
-{
-	/* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
-	uint32_t x = *state;
-	x ^= x << 13;
-	x ^= x >> 17;
-	x ^= x << 5;
-	*state = x;
-
-	return x;
-}
-
-void cmd_memtest()
-{
-	int cyc_count = 5;
-	int stride = 256;
-	uint32_t state;
-
-	volatile uint32_t *base_word = (uint32_t *) 0;
-	volatile uint8_t *base_byte = (uint8_t *) 0;
-
-	print("Running memtest ");
-
-	// Walk in stride increments, word access
-	for (int i = 1; i <= cyc_count; i++) {
-		state = i;
-
-		for (int word = 0; word < MEM_TOTAL / sizeof(int); word += stride) {
-			*(base_word + word) = xorshift32(&state);
-		}
-
-		state = i;
-
-		for (int word = 0; word < MEM_TOTAL / sizeof(int); word += stride) {
-			if (*(base_word + word) != xorshift32(&state)) {
-				print(" ***FAILED WORD*** at ");
-				print_hex(4*word, 4);
-				print("\n");
-				return;
-			}
-		}
-
-		print(".");
-	}
-
-	// Byte access
-	for (int byte = 0; byte < 128; byte++) {
-		*(base_byte + byte) = (uint8_t) byte;
-	}
-
-	for (int byte = 0; byte < 128; byte++) {
-		if (*(base_byte + byte) != (uint8_t) byte) {
-			print(" ***FAILED BYTE*** at ");
-			print_hex(byte, 4);
-			print("\n");
-			return;
-		}
-	}
-
-	print(" passed\n");
-}
-
 // --------------------------------------------------------
 
 void cmd_read_flash_id()
@@ -352,39 +235,6 @@ void cmd_read_flash_id()
 	}
 	putchar('\n');
 }
-
-// --------------------------------------------------------
-
-#ifdef HX8KDEMO
-uint8_t cmd_read_flash_regs_print(uint32_t addr, const char *name)
-{
-	set_flash_latency(8);
-
-	uint8_t buffer[6] = {0x65, addr >> 16, addr >> 8, addr, 0, 0};
-	flashio(buffer, 6, 0);
-
-	print("0x");
-	print_hex(addr, 6);
-	print(" ");
-	print(name);
-	print(" 0x");
-	print_hex(buffer[5], 2);
-	print("\n");
-
-	return buffer[5];
-}
-
-void cmd_read_flash_regs()
-{
-	print("\n");
-	uint8_t sr1v = cmd_read_flash_regs_print(0x800000, "SR1V");
-	uint8_t sr2v = cmd_read_flash_regs_print(0x800001, "SR2V");
-	uint8_t cr1v = cmd_read_flash_regs_print(0x800002, "CR1V");
-	uint8_t cr2v = cmd_read_flash_regs_print(0x800003, "CR2V");
-	uint8_t cr3v = cmd_read_flash_regs_print(0x800004, "CR3V");
-	uint8_t vdlp = cmd_read_flash_regs_print(0x800005, "VDLP");
-}
-#endif
 
 #ifdef ICEBREAKER
 uint8_t cmd_read_flash_reg(uint8_t cmd)
@@ -449,218 +299,28 @@ void cmd_read_flash_regs()
 
 // --------------------------------------------------------
 
-uint32_t cmd_benchmark(bool verbose, uint32_t *instns_p)
-{
-	uint8_t data[256];
-	uint32_t *words = (void*)data;
+// The interface to the configurable logic
+#define FUNC_AND  0x00
+#define FUNC_OR   0x01
+#define FUNC_XOR  0x02
+#define FUNC_NAND 0x03
 
-	uint32_t x32 = 314159265;
+typedef struct {
+	uint32_t input[4];
+	uint32_t func;
+} logic_channel_t;
 
-	uint32_t cycles_begin, cycles_end;
-	uint32_t instns_begin, instns_end;
-	__asm__ volatile ("rdcycle %0" : "=r"(cycles_begin));
-	__asm__ volatile ("rdinstret %0" : "=r"(instns_begin));
-
-	for (int i = 0; i < 20; i++)
+volatile logic_channel_t* logic_channel[] =
 	{
-		for (int k = 0; k < 256; k++)
-		{
-			x32 ^= x32 << 13;
-			x32 ^= x32 >> 17;
-			x32 ^= x32 << 5;
-			data[k] = x32;
-		}
-
-		for (int k = 0, p = 0; k < 256; k++)
-		{
-			if (data[k])
-				data[p++] = k;
-		}
-
-		for (int k = 0, p = 0; k < 64; k++)
-		{
-			x32 = x32 ^ words[k];
-		}
-	}
-
-	__asm__ volatile ("rdcycle %0" : "=r"(cycles_end));
-	__asm__ volatile ("rdinstret %0" : "=r"(instns_end));
-
-	if (verbose)
-	{
-		print("Cycles: 0x");
-		print_hex(cycles_end - cycles_begin, 8);
-		putchar('\n');
-
-		print("Instns: 0x");
-		print_hex(instns_end - instns_begin, 8);
-		putchar('\n');
-
-		print("Chksum: 0x");
-		print_hex(x32, 8);
-		putchar('\n');
-	}
-
-	if (instns_p)
-		*instns_p = instns_end - instns_begin;
-
-	return cycles_end - cycles_begin;
-}
-
-// --------------------------------------------------------
-
-#ifdef HX8KDEMO
-void cmd_benchmark_all()
-{
-	uint32_t instns = 0;
-
-	print("default        ");
-	reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00000000;
-	print(": ");
-	print_hex(cmd_benchmark(false, &instns), 8);
-	putchar('\n');
-
-	for (int i = 8; i > 0; i--)
-	{
-		print("dspi-");
-		print_dec(i);
-		print("         ");
-
-		set_flash_latency(i);
-		reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00400000;
-
-		print(": ");
-		print_hex(cmd_benchmark(false, &instns), 8);
-		putchar('\n');
-	}
-
-	for (int i = 8; i > 0; i--)
-	{
-		print("dspi-crm-");
-		print_dec(i);
-		print("     ");
-
-		set_flash_latency(i);
-		reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00500000;
-
-		print(": ");
-		print_hex(cmd_benchmark(false, &instns), 8);
-		putchar('\n');
-	}
-
-	for (int i = 8; i > 0; i--)
-	{
-		print("qspi-");
-		print_dec(i);
-		print("         ");
-
-		set_flash_latency(i);
-		reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00200000;
-
-		print(": ");
-		print_hex(cmd_benchmark(false, &instns), 8);
-		putchar('\n');
-	}
-
-	for (int i = 8; i > 0; i--)
-	{
-		print("qspi-crm-");
-		print_dec(i);
-		print("     ");
-
-		set_flash_latency(i);
-		reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00300000;
-
-		print(": ");
-		print_hex(cmd_benchmark(false, &instns), 8);
-		putchar('\n');
-	}
-
-	for (int i = 8; i > 0; i--)
-	{
-		print("qspi-ddr-");
-		print_dec(i);
-		print("     ");
-
-		set_flash_latency(i);
-		reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00600000;
-
-		print(": ");
-		print_hex(cmd_benchmark(false, &instns), 8);
-		putchar('\n');
-	}
-
-	for (int i = 8; i > 0; i--)
-	{
-		print("qspi-ddr-crm-");
-		print_dec(i);
-		print(" ");
-
-		set_flash_latency(i);
-		reg_spictrl = (reg_spictrl & ~0x00700000) | 0x00700000;
-
-		print(": ");
-		print_hex(cmd_benchmark(false, &instns), 8);
-		putchar('\n');
-	}
-
-	print("instns         : ");
-	print_hex(instns, 8);
-	putchar('\n');
-}
-#endif
-
-#ifdef ICEBREAKER
-void cmd_benchmark_all()
-{
-	uint32_t instns = 0;
-
-	print("default   ");
-	set_flash_mode_spi();
-	print_hex(cmd_benchmark(false, &instns), 8);
-	putchar('\n');
-
-	print("dual      ");
-	set_flash_mode_dual();
-	print_hex(cmd_benchmark(false, &instns), 8);
-	putchar('\n');
-
-	// print("dual-crm  ");
-	// enable_flash_crm();
-	// print_hex(cmd_benchmark(false, &instns), 8);
-	// putchar('\n');
-
-	print("quad      ");
-	set_flash_mode_quad();
-	print_hex(cmd_benchmark(false, &instns), 8);
-	putchar('\n');
-
-	print("quad-crm  ");
-	enable_flash_crm();
-	print_hex(cmd_benchmark(false, &instns), 8);
-	putchar('\n');
-
-	print("qddr      ");
-	set_flash_mode_qddr();
-	print_hex(cmd_benchmark(false, &instns), 8);
-	putchar('\n');
-
-	print("qddr-crm  ");
-	enable_flash_crm();
-	print_hex(cmd_benchmark(false, &instns), 8);
-	putchar('\n');
-
-}
-#endif
-
-void cmd_echo()
-{
-	print("Return to menu by sending '!'\n\n");
-	char c;
-	while ((c = getchar()) != '!')
-		putchar(c);
-}
-
+		((volatile logic_channel_t*)0x04000000), // LED1 output
+		((volatile logic_channel_t*)0x04000400), // LED2 output
+		((volatile logic_channel_t*)0x04000800), // LED3 output
+		((volatile logic_channel_t*)0x04000C00), // LED4 output
+		((volatile logic_channel_t*)0x04001000), // LED5 output
+		((volatile logic_channel_t*)0x04001400), // Temporary X
+		((volatile logic_channel_t*)0x04001800), // Temporary Y
+		((volatile logic_channel_t*)0x04001C00), // Temporary Z
+	};
 // --------------------------------------------------------
 
 void main()
@@ -688,83 +348,27 @@ void main()
 	print(" KiB\n");
 	print("\n");
 
-	cmd_memtest();
+	cmd_print_spi_state();
 	print("\n");
+
+	set_flash_mode_qddr();
+	enable_flash_crm();
+	print("Set flash to QDDR-CRM mode\n\n");
 
 	cmd_print_spi_state();
 	print("\n");
 
+
+	for (int i = 0; i < 5; i++)
+	{
+		logic_channel[i]->input[0] = 7;
+		for (int j = 1; j < 4; j++)
+			logic_channel[i]->input[j] = 0;
+		logic_channel[i]->func = FUNC_OR;
+	}
+
 	while (1)
 	{
-		print("\n");
-
-		print("Select an action:\n");
-		print("\n");
-		print("   [1] Read SPI Flash ID\n");
-		print("   [2] Read SPI Config Regs\n");
-		print("   [3] Switch to default mode\n");
-		print("   [4] Switch to Dual I/O mode\n");
-		print("   [5] Switch to Quad I/O mode\n");
-		print("   [6] Switch to Quad DDR mode\n");
-		print("   [7] Toggle continuous read mode\n");
-		print("   [9] Run simplistic benchmark\n");
-		print("   [0] Benchmark all configs\n");
-		print("   [M] Run Memtest\n");
-		print("   [S] Print SPI state\n");
-		print("   [e] Echo UART\n");
-		print("\n");
-
-		for (int rep = 10; rep > 0; rep--)
-		{
-			print("Command> ");
-			char cmd = getchar();
-			if (cmd > 32 && cmd < 127)
-				putchar(cmd);
-			print("\n");
-
-			switch (cmd)
-			{
-			case '1':
-				cmd_read_flash_id();
-				break;
-			case '2':
-				cmd_read_flash_regs();
-				break;
-			case '3':
-				set_flash_mode_spi();
-				break;
-			case '4':
-				set_flash_mode_dual();
-				break;
-			case '5':
-				set_flash_mode_quad();
-				break;
-			case '6':
-				set_flash_mode_qddr();
-				break;
-			case '7':
-				reg_spictrl = reg_spictrl ^ 0x00100000;
-				break;
-			case '9':
-				cmd_benchmark(true, 0);
-				break;
-			case '0':
-				cmd_benchmark_all();
-				break;
-			case 'M':
-				cmd_memtest();
-				break;
-			case 'P':
-				cmd_print_spi_state();
-				break;
-			case 'e':
-				cmd_echo();
-				break;
-			default:
-				continue;
-			}
-
-			break;
-		}
+		getchar_prompt("Hello World\n");
 	}
 }

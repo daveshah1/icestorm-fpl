@@ -35,6 +35,10 @@ module icebreaker (
 	output led4,
 	output led5,
 
+	input btn1,
+	input btn2,
+	input btn3,
+
 	output ledr_n,
 	output ledg_n,
 
@@ -56,14 +60,14 @@ module icebreaker (
 
 	wire [7:0] leds;
 
-	assign led1 = leds[1];
-	assign led2 = leds[2];
-	assign led3 = leds[3];
-	assign led4 = leds[4];
-	assign led5 = leds[5];
+	//assign led1 = leds[1];
+	//assign led2 = leds[2];
+	//assign led3 = leds[3];
+	//assign led4 = leds[4];
+	//assign led5 = leds[5];
 
-	assign ledr_n = !leds[6];
-	assign ledg_n = !leds[7];
+	assign ledr_n = !leds[1];
+	assign ledg_n = !leds[2];
 
 	wire flash_io0_oe, flash_io0_do, flash_io0_di;
 	wire flash_io1_oe, flash_io1_do, flash_io1_di;
@@ -81,11 +85,11 @@ module icebreaker (
 	);
 
 	wire        iomem_valid;
-	reg         iomem_ready;
+	reg         gpio_ready;
 	wire [3:0]  iomem_wstrb;
 	wire [31:0] iomem_addr;
 	wire [31:0] iomem_wdata;
-	reg  [31:0] iomem_rdata;
+	reg  [31:0] gpio_rdata;
 
 	reg [31:0] gpio;
 	assign leds = gpio;
@@ -94,10 +98,10 @@ module icebreaker (
 		if (!resetn) begin
 			gpio <= 0;
 		end else begin
-			iomem_ready <= 0;
-			if (iomem_valid && !iomem_ready && iomem_addr[31:24] == 8'h 03) begin
-				iomem_ready <= 1;
-				iomem_rdata <= gpio;
+			gpio_ready <= 0;
+			if (iomem_valid && !gpio_ready && iomem_addr[31:24] == 8'h 03) begin
+				gpio_ready <= 1;
+				gpio_rdata <= gpio;
 				if (iomem_wstrb[0]) gpio[ 7: 0] <= iomem_wdata[ 7: 0];
 				if (iomem_wstrb[1]) gpio[15: 8] <= iomem_wdata[15: 8];
 				if (iomem_wstrb[2]) gpio[23:16] <= iomem_wdata[23:16];
@@ -105,6 +109,25 @@ module icebreaker (
 			end
 		end
 	end
+
+	wire [31:0] logic_rdata;
+	wire logic_sel = (iomem_addr[31:24] == 8'h 04);
+	wire logic_ready;
+
+	configurable_logic logic_i(
+		.clk(clk),
+		.addr(iomem_addr[17:2]),
+		.wstrb(iomem_wstrb),
+		.wdata(iomem_wdata),
+		.valid(iomem_valid && logic_sel),
+		.ready(logic_ready),
+		.rdata(logic_rdata),
+		.led({led5, led4, led3, led2, led1}),
+		.btn({btn3, btn2, btn1})
+	); 
+
+	wire iomem_ready = logic_sel ? logic_ready : gpio_ready;
+	wire [31:0] iomem_rdata = logic_ready ? logic_rdata : gpio_rdata;
 
 	picosoc #(
 		.BARREL_SHIFTER(0),
