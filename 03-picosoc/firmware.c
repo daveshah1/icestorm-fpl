@@ -195,6 +195,42 @@ char getchar()
 	return getchar_prompt(0);
 }
 
+#define LINEBUF_SIZE 80
+char linebuf[LINEBUF_SIZE + 1];
+int linebuf_ptr;
+
+int getline()
+{
+	linebuf_ptr = 0;
+	unsigned char c = 0;
+	while (1) {
+		c = reg_uart_data;
+		if (c == 0xFF)
+			continue;
+		if (c == '\r' || c == '\n')
+		{
+			print("\r\n");
+			linebuf[linebuf_ptr] = '\0';
+			return linebuf_ptr;
+		} else if (c == '\b' || c == 0x7F) {
+			if (linebuf_ptr > 0) {
+				print("\b \b");
+				--linebuf_ptr;	
+			} else {
+				print("\a");
+			}
+		} else {
+			if (linebuf_ptr < LINEBUF_SIZE) {
+				if (c != ' ')
+					linebuf[linebuf_ptr++] = c;
+				putchar(c);
+			} else {
+				print("\a");
+			}
+		}
+	}
+}
+
 void cmd_print_spi_state()
 {
 	print("SPI State:\n");
@@ -312,15 +348,54 @@ typedef struct {
 
 volatile logic_channel_t* logic_channel[] =
 	{
-		((volatile logic_channel_t*)0x04000000), // LED1 output
-		((volatile logic_channel_t*)0x04000400), // LED2 output
-		((volatile logic_channel_t*)0x04000800), // LED3 output
-		((volatile logic_channel_t*)0x04000C00), // LED4 output
-		((volatile logic_channel_t*)0x04001000), // LED5 output
+		((volatile logic_channel_t*)0x04000000), // LED1 output (E)
+		((volatile logic_channel_t*)0x04000400), // LED2 output (F)
+		((volatile logic_channel_t*)0x04000800), // LED3 output (G)
+		((volatile logic_channel_t*)0x04000C00), // LED4 output (H)
+		((volatile logic_channel_t*)0x04001000), // LED5 output (I)
 		((volatile logic_channel_t*)0x04001400), // Temporary X
 		((volatile logic_channel_t*)0x04001800), // Temporary Y
 		((volatile logic_channel_t*)0x04001C00), // Temporary Z
 	};
+
+int lookup_output(char c) {
+	switch(c) {
+		case 'E': return 0;
+		case 'F': return 1;
+		case 'G': return 2;
+		case 'H': return 3;
+		case 'I': return 4;
+		case 'X': return 5;
+		case 'Y': return 6;
+		case 'Z': return 7;
+		default:  return -1;
+	};
+};
+
+int lookup_function(char c) {
+	switch(c) {
+		case '&': return FUNC_AND;
+		case '|': return FUNC_OR;
+		case '^': return FUNC_XOR;
+		case '~': return FUNC_NAND;
+		default: return -1;
+	};
+};
+
+int lookup_input(char c) {
+	switch(c) {
+		case '0': return 0;
+		case 'A': return 1;
+		case 'B': return 2;
+		case 'C': return 3;
+		case 'X': return 4;
+		case 'Y': return 5;
+		case 'Z': return 6;
+		case '1': return 7;
+		default:  return -1;
+	};
+};
+
 // --------------------------------------------------------
 
 void main()
@@ -358,17 +433,84 @@ void main()
 	cmd_print_spi_state();
 	print("\n");
 
-
-	for (int i = 0; i < 5; i++)
-	{
+	// Turn LEDs on
+	for (int i = 0; i < 5; i++) {
 		logic_channel[i]->input[0] = 7;
 		for (int j = 1; j < 4; j++)
 			logic_channel[i]->input[j] = 0;
 		logic_channel[i]->func = FUNC_OR;
 	}
 
-	while (1)
-	{
-		getchar_prompt("Hello World\n");
+	// Command processor
+	char c;
+	int len, o, f, inp, ci, inv;
+	print("Type ? for help.\n");
+	while (1) {
+		print("> ");
+		len = getline();
+		if (len == 0)
+			continue;
+		c = linebuf[0];
+		if (c == 'R') {
+			// Reset
+			for (int i = 0; i < 8; i++) {
+				for (int j = 0; j < 4; j++)
+					logic_channel[i]->input[j] = 0;
+				logic_channel[i]->func = FUNC_OR;
+			}
+			continue;
+		} else if (c == '?') {
+			print("Programmable logic configuation.\n");
+			print("\n");
+			print("'R' resets all configuration.\n");
+			print("\n");
+			print("Command strings are of form:\n");
+			print("<output> = <function> <input0> <input1> ...");
+			print("\n");
+			print("The 5 LED outputs are named E-H. The 3 button inputs\n");
+			print("are named A-B. There are 3 temporaries X, Y, Z that\n");
+			print("used as both inputs and outputs.\n");
+			print("\n");
+			print("<function> can be & (AND), | (OR), ^ (XOR) or ~ (NAND).\n");
+			print("\n");
+			print("Inputs can be inverted by prefixing with !, 0 and 1\n");
+			print("literals can also be used for constant values.\n");
+			print("\n");
+			continue;
+		}
+
+		if (len < 3 || len > 7)
+			goto syntax_error;
+
+		if (linebuf[1] != '=')
+			goto syntax_error;
+
+		o = lookup_output(linebuf[0]);
+		if (o == -1) goto syntax_error;
+
+		f = lookup_function(linebuf[2]);
+		if (f == -1) goto syntax_error;
+
+		ci = 3;
+		for (int i = 0; i < 4; i++) {
+			inv = 0;
+			inp = (f == FUNC_AND || f == FUNC_NAND) ? 7 : 0; // const1 default for AND/NAND, 0 otherwise
+			if (ci < len) {
+				if (linebuf[ci] == '!') {
+					inv = 1;
+					++ci;
+				}
+				if (ci >= len) goto syntax_error;
+				inp = lookup_input(linebuf[ci++]);
+			}
+			if (inp == -1) goto syntax_error;
+			logic_channel[o]->input[i] = (inv << 4) | inp;
+		}
+
+		logic_channel[o]->func = f;
+
+		continue;
+syntax_error:
+		print("Syntax error. Type ? for help\n");
 	}
 }

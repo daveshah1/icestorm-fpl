@@ -17,6 +17,9 @@
      1..3: inputs A-C
      4..6: temporaries X-Y
         7: constant 1
+	15..8: unused
+
+	Bit 5 of the input selection is a programmable invert
 
 	0x0i00 input 0 for function i
 	0x0i01 input 1 for function i
@@ -58,7 +61,7 @@ module configurable_logic (
 	assign inputs[15:8] = 8'bx;
 
 	// The configuration registers
-	reg [3:0] input_sel[(8*4)-1:0];
+	reg [4:0] input_sel[(8*4)-1:0];
 	reg [1:0] function_sel[7:0];
 
 	// The input muxes
@@ -68,8 +71,8 @@ module configurable_logic (
 	generate
 	for (i = 0; i < 8; i = i + 1) begin
 		for (j = 0; j < 4; j = j + 1) begin : inmux
-			wire [3:0] sel = input_sel[ 4*i + j ];
-			assign selected_inputs[i][j] = inputs[sel];
+			wire [3:0] sel = input_sel[ 4*i + j ][3:0];
+			assign selected_inputs[i][j] = inputs[sel] ^ input_sel[ 4 *i + j][4];
 		end
 	end
 	endgenerate
@@ -100,7 +103,7 @@ module configurable_logic (
 			ready <= 1'b1;
 			if (wstrb[0]) begin
 				if (addr[3:0] < 4'h4)
-					input_sel[{addr[10:8], addr[2:0]}] <= wdata[3:0];
+					input_sel[{addr[10:8], addr[1:0]}] <= wdata[4:0];
 				else if (addr[3:0] == 4'h4)
 					function_sel[addr[10:8]] <= wdata[2:0];
 			end
