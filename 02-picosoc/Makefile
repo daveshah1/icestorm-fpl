@@ -40,9 +40,11 @@ icebreaker.bin: icebreaker.asc
 
 prog: icebreaker.bin icebreaker_fw.bin
 	iceprog icebreaker.bin
+	iceprog -t
 	iceprog -o 1M icebreaker_fw.bin
 
 prog_fw: icebreaker_fw.bin
+	iceprog -t
 	iceprog -o 1M icebreaker_fw.bin
 
 icebreaker_sections.lds: sections.lds

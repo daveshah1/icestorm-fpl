@@ -1,5 +1,5 @@
-1. Simple "blinky" for the icebreaker example
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 1 Simple "blinky" for the icebreaker
+
 
 1. Check that the tools are working. Run:
 

@@ -1,35 +1,44 @@
 /*
 	An example of a peripheral for the picosoc
 	Impelements a simple "programmable logic" device
-	with 8 "function generators" driving 5 outputs
-	and 3 internal signals. Each function generator
-	can implement reduce-and, reduce-or, reduce-xor
-	or reduce-nand of 4 values.
+	with 8 programmable 4-input gates", the first 5
+	driving LEDs and the last 3 internal signals.
+	Each gate can implement AND, OR, XOR or NAND of
+	4 selected signals.
 
 	Outputs E..I correspond to the head LEDs
 	Inputs A..C correspond to the head buttons
 	X,Y,Z are "temporary" signals
 
-	Register map is repeated 8 times for the 8 function generators: for E-I and X-Z
+	Register map is repeated 8 times for the 8 gates
+	named E-I and X-Z
 
-	All input selections:
-		0: constant 0
-     1..3: inputs A-C
-     4..6: temporaries X-Y
-        7: constant 1
-	15..8: unused
+	5 registers per gate:
+		0x0i00: input 0 selection for gate i
+		0x0i01: input 1 selection for gate i
+		0x0i02: input 2 selection for gate i
+		0x0i03: input 3 selection for gate i
+		0x0i04: function selection for gate i:
+				0: AND
+				1: OR
+				2: XOR
+				3: NAND
 
-	Bit 5 of the input selection is a programmable invert
 
-	0x0i00 input 0 for function i
-	0x0i01 input 1 for function i
-	0x0i02 input 2 for function i
-	0x0i03 input 3 for function i
-	0x0i04 function selection for function i:
-		0x00: AND
-		0X01: OR
-		0x02: XOR
-		0x03: NAND
+	Input selections have the following bit structure:
+
+		Bits 3..0:
+					0: constant 0
+			     1..3: inputs A-C
+			     4..6: temporaries X-Y
+			        7: constant 1
+				15..8: unused
+		
+		Bit 5:
+					0: non-inverted
+					1: inverted
+
+
 */
 
 module configurable_logic (
@@ -46,7 +55,7 @@ module configurable_logic (
 	output [4:0] led
 );
 
-	// Register representing value of the 8 programmable functions
+	// Register representing output value of the 8 gates
 	// (outputs E..I and temps X..Z)
 	reg [7:0] values;
 	assign led = values[4:0];
@@ -77,7 +86,7 @@ module configurable_logic (
 	end
 	endgenerate
 
-	// The function generators
+	// The programmable gates
 	// Note that these are clocked with a "fast" clock to avoid
 	// combinational loop issues. For the extension adding "registers"
 	// these should be on a slower clock (see below)
