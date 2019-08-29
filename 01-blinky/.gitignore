@@ -1,0 +1,8 @@
+*.json
+*.vcd
+*.asc
+*.bin
+*_tb
+*_syn.v
+*_syntb
+*.rpt
