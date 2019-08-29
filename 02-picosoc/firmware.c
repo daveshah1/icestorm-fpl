@@ -392,6 +392,14 @@ int lookup_input(char c) {
 		case 'Y': return 5;
 		case 'Z': return 6;
 		case '1': return 7;
+		case 'e': return 8;
+		case 'f': return 9;
+		case 'g': return 10;
+		case 'h': return 11;
+		case 'i': return 12;
+		case 'x': return 13;
+		case 'y': return 14;
+		case 'z': return 15;
 		default:  return -1;
 	};
 };

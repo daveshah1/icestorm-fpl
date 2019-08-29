@@ -57,7 +57,7 @@ module configurable_logic (
 
 	// Register representing output value of the 8 gates
 	// (outputs E..I and temps X..Z)
-	reg [7:0] values;
+	reg [7:0] values, past_values;
 	assign led = values[4:0];
 
 	// The 16 possible inputs
@@ -67,7 +67,7 @@ module configurable_logic (
 	assign inputs[3:1] = btn;
 	assign inputs[6:4] = values[7:5];
 	assign inputs[7] = 1'b1;
-	assign inputs[15:8] = 8'bx;
+	assign inputs[15:8] = past_values;
 
 	// The configuration registers
 	reg [4:0] input_sel[(8*4)-1:0];
@@ -121,10 +121,14 @@ module configurable_logic (
 
 	// Sample divided strobe generator
 	//
-	// reg [19:0] ctr;
-	// reg clkdiv;
-	// always @(posedge clk)
-	//    {clkdiv, ctr} <= ctr + 1'b1;
+	reg [21:0] ctr;
+	reg clkdiv;
+	always @(posedge clk)
+		{clkdiv, ctr} <= ctr + 1'b1;
+
+	always @(posedge clk)
+		if (clkdiv)
+			past_values <= values;
 
 
 	// Extension: do something more with this
