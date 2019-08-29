@@ -358,6 +358,16 @@ volatile logic_channel_t* logic_channel[] =
 		((volatile logic_channel_t*)0x04001C00), // Temporary Z
 	};
 
+#define reg_logic_readback (*(volatile uint32_t*)0x04000000)
+
+void print_readback_bit(uint32_t readback, int bit, char name)
+{
+	putchar(name);
+	putchar('=');
+	putchar((readback & (1 << bit)) ? '1' : '0');
+	putchar(' ');
+}
+
 int lookup_output(char c) {
 	switch(c) {
 		case 'E': return 0;
@@ -466,6 +476,26 @@ void main()
 					logic_channel[i]->input[j] = 0;
 				logic_channel[i]->func = FUNC_OR;
 			}
+			continue;
+		} else if (c == 'P') {
+			uint32_t value = reg_logic_readback;
+			print("Inputs:   ");
+			print_readback_bit(value, 1, 'A');
+			print_readback_bit(value, 2, 'B');
+			print_readback_bit(value, 3, 'C');
+			putchar('\n');
+			print("Internal: ");
+			print_readback_bit(value, 4, 'X');
+			print_readback_bit(value, 5, 'Y');
+			print_readback_bit(value, 6, 'Z');
+			putchar('\n');
+			print("Outputs:  ");
+			print_readback_bit(value,  8, 'E');
+			print_readback_bit(value,  9, 'F');
+			print_readback_bit(value, 10, 'G');
+			print_readback_bit(value, 11, 'H');
+			print_readback_bit(value, 12, 'I');
+			putchar('\n');
 			continue;
 		} else if (c == '?') {
 			print("Programmable logic configuation.\n");

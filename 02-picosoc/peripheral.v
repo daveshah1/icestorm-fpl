@@ -132,5 +132,5 @@ module configurable_logic (
 
 
 	// Extension: do something more with this
-	assign rdata = 32'bx;
+	assign rdata = {values[7:0], inputs[7:0]};
 endmodule
