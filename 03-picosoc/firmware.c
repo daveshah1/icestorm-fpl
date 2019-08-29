@@ -476,6 +476,14 @@ void main()
 			print("Inputs can be inverted by prefixing with !, 0 and 1\n");
 			print("literals can also be used for constant values.\n");
 			print("\n");
+			print("Example: full adder (LED1=sum, LED2=cout):\n");
+			print("    > R\n");
+			print("    > X=^AB\n");
+			print("    > Y=&AB\n");
+			print("    > Z=&XC\n");
+			print("    > E=^XC\n");
+			print("    > F=^YZ\n");
+			print("\n");
 			continue;
 		}
 
